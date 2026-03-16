@@ -4,8 +4,42 @@ import plotly.express as px
 import plotly.graph_objects as go
 from dash import Dash, dcc, html, Input, Output
 import dash_bootstrap_components as dbc
+import urllib.request
+import os
 
-df = pd.read_parquet("C:/Users/habib/Desktop/SRU/processed/sru_idf.parquet")
+# Telechargement automatique des donnees au demarrage
+URL = "https://static.data.gouv.fr/resources/communes-et-inventaire-sru/20251219-095835/donnees-sru-data-gouv-2025-v2.csv"
+DATA_PATH = "donnees-sru-2025.csv"
+
+if not os.path.exists(DATA_PATH):
+    print("Telechargement des donnees SRU...")
+    urllib.request.urlretrieve(URL, DATA_PATH)
+    print("Donnees telechargees !")
+
+chemin = DATA_PATH
+df_raw = pd.read_csv(chemin, sep=";", encoding="latin-1", dtype=str)
+df_raw.columns = [
+    "zone","region","departement","code_dept","code_insee","nom_commune",
+    "population","code_siren","nom_epci","epci_sru","code_uu","nom_uu",
+    "uu_sru","com_isolee","sru_2025","sru_2024","nb_lls","taux_sru",
+    "deficitaire","carencee","exemptee","taux_cible","prelevement"
+]
+
+dept_idf = ["75","77","78","91","92","93","94","95"]
+df = df_raw[df_raw["code_dept"].isin(dept_idf)].copy()
+
+df["nb_lls"]      = pd.to_numeric(df["nb_lls"].str.replace(" ",""), errors="coerce")
+df["population"]  = pd.to_numeric(df["population"].str.replace(" ",""), errors="coerce")
+df["taux_sru"]    = pd.to_numeric(df["taux_sru"].str.replace("%","").str.replace(",","."), errors="coerce")
+df["taux_cible"]  = pd.to_numeric(df["taux_cible"].str.replace("%","").str.replace(",","."), errors="coerce")
+df["prelevement"] = pd.to_numeric(
+    df["prelevement"].str.replace("\x80","",regex=False).str.replace(" ","",regex=False).str.replace(",",".",regex=False).str.strip(),
+    errors="coerce").fillna(0)
+df["deficitaire"] = df["deficitaire"].str.strip()
+df["carencee"]    = df["carencee"].str.strip()
+df["exemptee"]    = df["exemptee"].str.strip()
+df["logements_manquants"] = ((df["taux_cible"]/100*df["population"]-df["nb_lls"]).clip(lower=0).round(0))
+df["ecart_taux"]  = (df["taux_cible"] - df["taux_sru"]).round(2)
 
 dept_labels = {
     "75":"Paris","77":"Seine-et-Marne","78":"Yvelines",
@@ -15,6 +49,7 @@ dept_labels = {
 depts = sorted(df["code_dept"].unique())
 
 app = Dash(__name__, external_stylesheets=[dbc.themes.FLATLY])
+server = app.server
 
 sidebar = dbc.Card([
     html.H5("Filtres"),
@@ -30,10 +65,10 @@ sidebar = dbc.Card([
     dcc.Dropdown(
         id="filtre_statut",
         options=[
-            {"label": "Toutes", "value": "all"},
+            {"label": "Toutes",       "value": "all"},
             {"label": "Deficitaires", "value": "def"},
-            {"label": "Carencees", "value": "car"},
-            {"label": "Exemptees", "value": "exe"},
+            {"label": "Carencees",    "value": "car"},
+            {"label": "Exemptees",    "value": "exe"},
         ],
         value="all", clearable=False
     ),
@@ -46,13 +81,13 @@ sidebar = dbc.Card([
 tabs = dbc.Tabs([
     dbc.Tab(label="Vue d ensemble", children=[
         dbc.Row([
-            dbc.Col(dbc.Card(id="kpi_total",  color="primary", inverse=True), width=3),
-            dbc.Col(dbc.Card(id="kpi_def",    color="danger",  inverse=True), width=3),
-            dbc.Col(dbc.Card(id="kpi_car",    color="warning", inverse=True), width=3),
-            dbc.Col(dbc.Card(id="kpi_prel",   color="dark",    inverse=True), width=3),
+            dbc.Col(dbc.Card(id="kpi_total", color="primary", inverse=True), width=3),
+            dbc.Col(dbc.Card(id="kpi_def",   color="danger",  inverse=True), width=3),
+            dbc.Col(dbc.Card(id="kpi_car",   color="warning", inverse=True), width=3),
+            dbc.Col(dbc.Card(id="kpi_prel",  color="dark",    inverse=True), width=3),
         ], className="mt-3 mb-3"),
         dbc.Row([
-            dbc.Col(dcc.Graph(id="p_taux_dist"), width=7),
+            dbc.Col(dcc.Graph(id="p_taux_dist"),  width=7),
             dbc.Col(dcc.Graph(id="p_statut_pie"), width=5),
         ])
     ]),
@@ -64,12 +99,10 @@ tabs = dbc.Tabs([
     ]),
     dbc.Tab(label="Par departement", children=[
         dbc.Row([
-            dbc.Col(dcc.Graph(id="p_dept_taux"),  width=6),
-            dbc.Col(dcc.Graph(id="p_dept_prel"),  width=6),
+            dbc.Col(dcc.Graph(id="p_dept_taux"), width=6),
+            dbc.Col(dcc.Graph(id="p_dept_prel"), width=6),
         ], className="mt-3"),
-        dbc.Row([
-            dbc.Col(dcc.Graph(id="p_scatter"),    width=12),
-        ])
+        dbc.Row([dbc.Col(dcc.Graph(id="p_scatter"), width=12)])
     ]),
 ])
 
@@ -96,27 +129,22 @@ def get_df(depts_sel, statut, taux_max):
 )
 def kpis(depts_sel, statut, taux_max):
     d = get_df(depts_sel, statut, taux_max)
-    total = len(d)
-    defic = (d["deficitaire"]=="1").sum()
-    caren = (d["carencee"]=="1").sum()
-    prel  = d["prelevement"].sum()
     def k(t,v): return dbc.CardBody([html.H6(t), html.H3(str(v))])
-    return (k("Communes", total),
-            k("Deficitaires", defic),
-            k("Carencees", caren),
-            k("Prelevement", f"{prel/1e6:.1f} M EUR"))
+    return (k("Communes", len(d)),
+            k("Deficitaires", (d["deficitaire"]=="1").sum()),
+            k("Carencees",    (d["carencee"]=="1").sum()),
+            k("Prelevement",  f"{d['prelevement'].sum()/1e6:.1f} M EUR"))
 
 @app.callback(Output("p_taux_dist","figure"),
               Input("filtre_dept","value"), Input("filtre_statut","value"), Input("filtre_taux","value"))
 def p_taux_dist(depts_sel, statut, taux_max):
     d = get_df(depts_sel, statut, taux_max)
-    fig = px.histogram(d, x="taux_sru", nbins=30,
-                       color="deficitaire",
+    fig = px.histogram(d, x="taux_sru", nbins=30, color="deficitaire",
                        color_discrete_map={"1":"#A32D2D","0":"#1D9E75"},
-                       labels={"taux_sru":"Taux SRU (%)","deficitaire":"Deficitaire"},
-                       title="Distribution des taux SRU")
+                       title="Distribution des taux SRU",
+                       labels={"taux_sru":"Taux SRU (%)","deficitaire":"Deficitaire"})
     fig.add_vline(x=20, line_dash="dash", line_color="orange", annotation_text="Seuil 20%")
-    fig.add_vline(x=25, line_dash="dash", line_color="red", annotation_text="Seuil 25%")
+    fig.add_vline(x=25, line_dash="dash", line_color="red",    annotation_text="Seuil 25%")
     fig.update_layout(template="plotly_white")
     return fig
 
@@ -192,11 +220,11 @@ def p_scatter(depts_sel, statut, taux_max):
                      size="population", color="departement",
                      hover_name="nom_commune",
                      hover_data=["taux_cible","prelevement"],
-                     title="Taux SRU vs Logements manquants (taille = population)",
+                     title="Taux SRU vs Logements manquants",
                      labels={"taux_sru":"Taux SRU (%)","logements_manquants":"Logements manquants"})
     fig.add_vline(x=25, line_dash="dash", line_color="red", annotation_text="Objectif 25%")
     fig.update_layout(template="plotly_white")
     return fig
 
 if __name__ == "__main__":
-    app.run(debug=True, port=8055)
+    app.run(debug=False, host="0.0.0.0", port=int(os.environ.get("PORT", 8055)))
