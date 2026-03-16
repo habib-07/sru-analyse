@@ -2,6 +2,9 @@
 
 Dashboard interactif d'analyse de la loi SRU (Solidarité et Renouvellement Urbain) en Île-de-France, développé en Python à partir des données officielles data.gouv.fr (2025).
 
+## 🚀 Lien de l'application
+L'application est déployée sur Render et consultable ici : 👉 [https://sru-idf.onrender.com/] 
+
 ## Objectifs
 
 - Visualiser les communes déficitaires en logements sociaux en IDF
