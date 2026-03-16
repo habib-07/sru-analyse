@@ -4,19 +4,10 @@ import plotly.express as px
 import plotly.graph_objects as go
 from dash import Dash, dcc, html, Input, Output
 import dash_bootstrap_components as dbc
-import urllib.request
 import os
 
 # Telechargement automatique des donnees au demarrage
-URL = "https://static.data.gouv.fr/resources/communes-et-inventaire-sru/20251219-095835/donnees-sru-data-gouv-2025-v2.csv"
-DATA_PATH = "donnees-sru-2025.csv"
-
-if not os.path.exists(DATA_PATH):
-    print("Telechargement des donnees SRU...")
-    urllib.request.urlretrieve(URL, DATA_PATH)
-    print("Donnees telechargees !")
-
-chemin = DATA_PATH
+chemin = "donnees-sru-2025.csv"
 df_raw = pd.read_csv(chemin, sep=";", encoding="latin-1", dtype=str)
 df_raw.columns = [
     "zone","region","departement","code_dept","code_insee","nom_commune",

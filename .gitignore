@@ -1,7 +1,5 @@
-*.csv
-*.xlsx
-*.ods
 processed/
 __pycache__/
 *.pyc
 .env
+*.parquet
